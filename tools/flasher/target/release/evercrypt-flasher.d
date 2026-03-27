@@ -1,0 +1,1 @@
+/home/blackhat/EverCrypt-Bootkit/tools/flasher/target/release/evercrypt-flasher: /home/blackhat/EverCrypt-Bootkit/tools/flasher/src/main.rs /home/blackhat/EverCrypt-Bootkit/tools/flasher/src/spi_controller.rs

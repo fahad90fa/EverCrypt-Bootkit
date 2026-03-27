@@ -1,0 +1,21 @@
+[package]
+name = "evercrypt-flasher"
+version = "1.0.0"
+edition = "2021"
+authors = ["EverCrypt Project"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+byteorder = "1.5"
+hex = "0.4"
+sha2 = "0.10"
+colored = "2.1"
+nix = { version = "0.31.2", features = ["user"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
