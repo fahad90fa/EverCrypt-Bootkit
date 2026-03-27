@@ -1,0 +1,6 @@
+                                      1         .module me_hooks
+                                      2         .area CSEG (CODE)
+                                      3         
+                                      4         .globl _patch_dxe
+      000000                          5 _patch_dxe::
+      000000 22               [24]    6         ret

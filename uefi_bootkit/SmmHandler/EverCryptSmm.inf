@@ -1,0 +1,43 @@
+## @file
+#  EverCrypt SMM Handler
+#
+#  Ring -2 encryption engine, invisible to all EDRs
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = EverCryptSmm
+  FILE_GUID                      = FEEDC0DE-2025-534D-4D48-414E444C4552
+  MODULE_TYPE                    = DXE_SMM_DRIVER
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x0001000A
+  ENTRY_POINT                    = EverCryptSmmEntry
+
+[Sources]
+  EverCryptSmm.c
+  smm_crypto.nasm
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  SmmServicesTableLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  SynchronizationLib
+
+[Protocols]
+  gEfiSmmCpuProtocolGuid
+  gEfiSmmSwDispatch2ProtocolGuid
+
+[Guids]
+  gEverCryptProtocolGuid
+
+[Depex]
+  gEfiSmmCpuProtocolGuid AND
+  gEfiSmmSwDispatch2ProtocolGuid

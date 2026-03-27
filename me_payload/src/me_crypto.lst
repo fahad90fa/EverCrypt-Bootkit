@@ -1,0 +1,6 @@
+                                      1         .module me_crypto
+                                      2         .area CSEG (CODE)
+                                      3         
+                                      4         .globl _encrypt
+      000000                          5 _encrypt::
+      000000 22               [24]    6         ret

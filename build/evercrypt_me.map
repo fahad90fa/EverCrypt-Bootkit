@@ -1,0 +1,71 @@
+ASxxxx Linker V03.00/V05.40 + sdld,  page 1.
+Hexadecimal  [32-Bits]
+
+Area                                    Addr        Size        Decimal Bytes (Attributes)
+--------------------------------        ----        ----        ------- ----- ------------
+.  .ABS.                            00000000    00000000 =           0. bytes (ABS,CON)
+
+      Value  Global                              Global Defined In Module
+      -----  --------------------------------   ------------------------
+     00000000  .__.ABS.                           me_crypto
+     00000000  l_BIT_BANK                      
+     00000000  l_BSEG                          
+     00000000  l_BSEG_BYTES                    
+     00000000  l_DSEG                          
+     00000000  l_GSFINAL                       
+     00000000  l_GSINIT                        
+     00000000  l_ISEG                          
+     00000000  l_OSEG                          
+     00000000  l_REG_BANK_0                    
+     00000000  l_REG_BANK_1                    
+     00000000  l_REG_BANK_2                    
+     00000000  l_REG_BANK_3                    
+     00000000  l_SSEG                          
+     00000000  l__CODE                         
+     00000000  s_BSEG                          
+     00000000  s_CSEG                          
+     00000000  s_DSEG                          
+     00000000  s_REG_BANK_0                    
+     00000008  s_REG_BANK_1                    
+     00000010  s_REG_BANK_2                    
+     00000018  s_BIT_BANK                      
+     00000018  s_ISEG                          
+     00000018  s_OSEG                          
+     00000018  s_REG_BANK_3                    
+     00000018  s_SSEG                          
+     00000020  s_BSEG_BYTES                    
+     00000020  s__CODE                         
+     000000A5  l_CSEG                          
+     00000100  l_IRAM                          
+     00000100  s_GSINIT                        
+     00000200  s_GSFINAL                       
+
+ASxxxx Linker V03.00/V05.40 + sdld,  page 2.
+Hexadecimal  [32-Bits]
+
+Area                                    Addr        Size        Decimal Bytes (Attributes)
+--------------------------------        ----        ----        ------- ----- ------------
+CSEG                                00000000    000000A5 =         165. bytes (REL,CON,CODE)
+
+      Value  Global                              Global Defined In Module
+      -----  --------------------------------   ------------------------
+C:   00000092  patch_runtime                      me_hooks
+C:   00000099  encrypt_block                      me_crypto
+
+ASxxxx Linker V03.00/V05.40 + sdld,  page 3.
+
+Files Linked                              [ module(s) ]
+
+evercrypt_me.rel                          [  ]
+me_hooks.rel                              [  ]
+me_crypto.rel                             [  ]
+
+ASxxxx Linker V03.00/V05.40 + sdld,  page 4.
+
+User Base Address Definitions
+
+CSEG=0x0000
+GSINIT=0x0100
+GSFINAL=0x0200
+
+

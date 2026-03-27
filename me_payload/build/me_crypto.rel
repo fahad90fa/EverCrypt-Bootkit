@@ -1,0 +1,11 @@
+XH3
+H 2 areas 2 global symbols
+M me_crypto
+S .__.ABS. Def000000
+A _CODE size 0 flags 0 addr 0
+A CSEG size 1 flags 20 addr 0
+S _encrypt Def000000
+T 00 00 00
+R 00 00 00 01
+T 00 00 00 22
+R 00 00 00 01

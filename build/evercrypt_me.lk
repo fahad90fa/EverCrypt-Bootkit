@@ -1,0 +1,9 @@
+-mjwx
+-i evercrypt_me.ihx
+-b CSEG=0x0000
+-b GSINIT=0x0100
+-b GSFINAL=0x0200
+evercrypt_me.rel
+me_hooks.rel
+me_crypto.rel
+-e
