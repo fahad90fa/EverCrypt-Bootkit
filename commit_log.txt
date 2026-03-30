@@ -13,3 +13,4 @@
 - [2026-03-30 13:34:50] minor fixes
 - [2026-03-30 13:34:51] refactored code
 - [2026-03-30 13:34:51] cleaned up code
+- [2026-03-30 13:34:52] improved security
